@@ -1,0 +1,14 @@
+[project]
+name = "autocomplete-finetune"
+version = "0.1.0"
+description = "Fine-tune SmolLM2-135M for B2B autocomplete"
+requires-python = ">=3.10"
+dependencies = [
+    "transformers>=4.45.0",
+    "torch>=2.4.0",
+    "peft>=0.13.0",
+    "datasets>=3.0.0",
+    "accelerate>=1.0.0",
+    "gguf>=0.10.0",
+    "sentencepiece>=0.2.0",
+]

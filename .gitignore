@@ -1,0 +1,14 @@
+.env
+*.gguf
+/server
+.DS_Store
+
+# Fine-tuning artifacts
+finetune/.venv/
+finetune/output/
+finetune/train.jsonl
+finetune/val.jsonl
+finetune/train.txt
+finetune/val.txt
+finetune/uv.lock
+finetune/__pycache__/

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Autocomplete Demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; padding: 40px 20px; }
+    .container { max-width: 640px; margin: 0 auto; }
+    h1 { font-size: 20px; color: #333; margin-bottom: 24px; }
+    .search-box { position: relative; }
+    input {
+      width: 100%; padding: 14px 16px; font-size: 16px;
+      border: 2px solid #ddd; border-radius: 8px; outline: none;
+      background: #fff; transition: border-color 0.2s;
+    }
+    input:focus { border-color: #4a90d9; }
+    .dropdown {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+      background: #fff; border: 1px solid #ddd; border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: none; overflow: hidden; z-index: 10;
+    }
+    .dropdown.visible { display: block; }
+    .suggestion {
+      padding: 10px 16px; cursor: pointer; font-size: 15px;
+      border-bottom: 1px solid #f0f0f0; display: flex; align-items: baseline; gap: 0;
+    }
+    .suggestion:last-child { border-bottom: none; }
+    .suggestion:hover, .suggestion.active { background: #f0f6ff; }
+    .suggestion .typed { color: #333; font-weight: 500; }
+    .suggestion .completed { color: #4a90d9; }
+    .suggestion .latency { margin-left: auto; font-size: 11px; color: #999; flex-shrink: 0; }
+    .meta { margin-top: 16px; font-size: 13px; color: #888; }
+    .meta span { margin-right: 16px; }
+    .config { margin-top: 32px; padding: 16px; background: #fff; border-radius: 8px; border: 1px solid #ddd; }
+    .config h3 { font-size: 14px; color: #666; margin-bottom: 12px; }
+    .config-row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .config-row label { font-size: 13px; color: #555; display: flex; flex-direction: column; gap: 4px; }
+    .config-row input, .config-row select { padding: 6px 8px; font-size: 13px; border: 1px solid #ddd; border-radius: 4px; width: 120px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Autocomplete Demo</h1>
+    <div class="search-box">
+      <input type="text" id="input" placeholder="Start typing..." autocomplete="off" />
+      <div class="dropdown" id="dropdown"></div>
+    </div>
+    <div class="meta" id="meta"></div>
+    <div class="config">
+      <h3>Settings</h3>
+      <div class="config-row">
+        <label>API URL <input type="text" id="apiUrl" value="/autocomplete/autocomplete" /></label>
+        <label>Suggestions <input type="number" id="numSuggestions" value="5" min="1" max="10" /></label>
+        <label>Max Tokens <input type="number" id="maxTokens" value="5" min="1" max="20" /></label>
+        <label>Debounce (ms) <input type="number" id="debounce" value="150" min="50" max="1000" step="50" /></label>
+      </div>
+    </div>
+  </div>
+  <script>
+    const input = document.getElementById('input');
+    const dropdown = document.getElementById('dropdown');
+    const meta = document.getElementById('meta');
+    let timer = null;
+    let activeIdx = -1;
+    let suggestions = [];
+    let controller = null;
+
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      const ms = parseInt(document.getElementById('debounce').value) || 150;
+      timer = setTimeout(fetchSuggestions, ms);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (!suggestions.length) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); setActive(activeIdx + 1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(activeIdx - 1); }
+      else if (e.key === 'Enter' && activeIdx >= 0) { e.preventDefault(); pick(activeIdx); }
+      else if (e.key === 'Escape') { hide(); }
+    });
+
+    document.addEventListener('click', (e) => { if (!e.target.closest('.search-box')) hide(); });
+
+    function setActive(idx) {
+      activeIdx = Math.max(-1, Math.min(idx, suggestions.length - 1));
+      dropdown.querySelectorAll('.suggestion').forEach((el, i) => el.classList.toggle('active', i === activeIdx));
+    }
+
+    function pick(idx) {
+      input.value = suggestions[idx].full_text;
+      hide();
+      input.focus();
+    }
+
+    function hide() { dropdown.classList.remove('visible'); activeIdx = -1; }
+
+    async function fetchSuggestions() {
+      const text = input.value.trim();
+      if (!text) { hide(); meta.textContent = ''; return; }
+
+      if (controller) controller.abort();
+      controller = new AbortController();
+
+      const url = document.getElementById('apiUrl').value;
+      const numSuggestions = parseInt(document.getElementById('numSuggestions').value) || 5;
+      const maxTokens = parseInt(document.getElementById('maxTokens').value) || 5;
+      const start = performance.now();
+
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, num_suggestions: numSuggestions, max_tokens: maxTokens }),
+          signal: controller.signal,
+        });
+        const data = await resp.json();
+        const roundtrip = (performance.now() - start).toFixed(0);
+        suggestions = data.suggestions || [];
+        activeIdx = -1;
+
+        if (!suggestions.length) { hide(); meta.textContent = 'No suggestions'; return; }
+
+        dropdown.innerHTML = suggestions.map((s, i) =>
+          `<div class="suggestion" onclick="pick(${i})">
+            <span class="typed">${esc(text)}</span><span class="completed">${esc(s.completion)}</span>
+            <span class="latency">${s.latency_ms.toFixed(0)}ms</span>
+          </div>`
+        ).join('');
+        dropdown.classList.add('visible');
+
+        const avgLatency = (suggestions.reduce((a, s) => a + s.latency_ms, 0) / suggestions.length).toFixed(0);
+        meta.innerHTML = `<span>${suggestions.length} suggestions</span><span>Avg inference: ${avgLatency}ms</span><span>Roundtrip: ${roundtrip}ms</span>`;
+      } catch (e) {
+        if (e.name !== 'AbortError') meta.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  </script>
+</body>
+</html>

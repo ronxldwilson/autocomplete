@@ -1,0 +1,25 @@
+services:
+  autocomplete:
+    build: .
+    container_name: autocomplete
+    restart: unless-stopped
+    ports:
+      - "8400:8400"
+    environment:
+      - THREADS=3
+      - CTX_SIZE=64
+      - MAX_TOKENS=4
+      - NUM_SUGGESTIONS=5
+      - TEMPERATURE=0.3
+      - TOP_K=20
+      - TOP_P=0.85
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8400/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
